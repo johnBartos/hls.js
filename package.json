@@ -26,7 +26,7 @@
   },
   "scripts": {
     "build": "webpack --progress",
-    "build:watch": "webpack --progress --watch",
+    "build:watch": "webpack --env.debug --watch",
     "build:analyze": "ANALYZE=true webpack --progress",
     "build:release": "npm run build && npm run test && git add dist/* && git commit -m 'Update dist' && npm run docs:release",
     "commit:release": "npm run build:release && git add dist/* && git commit -m 'update dist'",
@@ -42,8 +42,6 @@
     "lint:src": "eslint src/",
     "lint:tests": "eslint tests/",
     "lint:demo": "eslint demo/",
-    "precommit": "./scripts/precommit",
-    "pretest": "npm run lint",
     "release:pre": "mversion prerelease && npm run build:release",
     "release:patch": "mversion p && npm run build:release",
     "release:minor": "mversion mi && npm run build:release",
