@@ -72,6 +72,7 @@ class XhrLoader {
     if (context.rangeEnd) {
       xhr.setRequestHeader('Range', 'bytes=' + context.rangeStart + '-' + (context.rangeEnd - 1));
     }
+    xhr.setRequestHeader('Transfer-Encoding', 'chunked');
 
     xhr.onreadystatechange = this.readystatechange.bind(this);
     xhr.onprogress = this.loadprogress.bind(this);
@@ -88,6 +89,8 @@ class XhrLoader {
       stats = this.stats,
       context = this.context,
       config = this.config;
+
+    console.log('>>> readyStateChange', xhr.response)
 
     // don't proceed if xhr has been aborted
     if (stats.aborted) {
@@ -151,6 +154,9 @@ class XhrLoader {
     let xhr = event.currentTarget,
       stats = this.stats;
 
+    if (xhr.responseURL.indexOf('.ts') > 0) {
+      console.log('>>> progress', xhr.readyState, xhr.response, event.total);
+    }
     stats.loaded = event.loaded;
     if (event.lengthComputable) {
       stats.total = event.total;
@@ -159,7 +165,7 @@ class XhrLoader {
     let onProgress = this.callbacks.onProgress;
     if (onProgress) {
       // third arg is to provide on progress data
-      onProgress(stats, this.context, null, xhr);
+      onProgress(stats, this.context, xhr.response, xhr);
     }
   }
 }

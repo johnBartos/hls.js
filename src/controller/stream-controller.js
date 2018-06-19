@@ -50,13 +50,15 @@ class StreamController extends TaskLoop {
       Event.AUDIO_TRACK_SWITCHED,
       Event.BUFFER_CREATED,
       Event.BUFFER_APPENDED,
-      Event.BUFFER_FLUSHED);
+      Event.BUFFER_FLUSHED,
+      Event.FRAG_LOAD_PROGRESS);
 
     this.fragmentTracker = fragmentTracker;
     this.config = hls.config;
     this.audioCodecSwap = false;
     this._state = State.STOPPED;
     this.stallReported = false;
+    this.stats = {};
   }
 
   onHandlerDestroying () {
@@ -419,6 +421,7 @@ class StreamController extends TaskLoop {
     }
     if (foundFrag) {
       frag = foundFrag;
+      return frag;
       const curSNIdx = frag.sn - levelDetails.startSN;
       const sameLevel = fragPrevious && frag.level === fragPrevious.level;
       const prevFrag = fragments[curSNIdx - 1];
@@ -472,6 +475,10 @@ class StreamController extends TaskLoop {
   }
 
   _loadFragment (frag) {
+    // if (this.once) {
+    //   return;
+    // }
+    // this.once = true;
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
@@ -996,10 +1003,22 @@ class StreamController extends TaskLoop {
         let mediaSeeking = media && media.seeking;
         let accurateTimeOffset = !mediaSeeking && (details.PTSKnown || !details.live);
         let initSegmentData = details.initSegment ? details.initSegment.data : [];
-        demuxer.push(data.payload, initSegmentData, audioCodec, currentLevel.videoCodec, fragCurrent, duration, accurateTimeOffset, undefined);
+        if (!this.config.lowLatency) {
+          demuxer.push(data.payload, initSegmentData, audioCodec, currentLevel.videoCodec, fragCurrent, duration, accurateTimeOffset, undefined);
+        }
       }
     }
     this.fragLoadError = 0;
+  }
+
+  onFragLoadProgress (data) {
+    const { demuxer, levels, fragCurrent, media } = this;
+    const currentLevel = levels[fragCurrent.level];
+    const { duration, initSegment, PTSKnown, live } = currentLevel.details;
+    const accurateTimeOffset = !(media && media.seeking) && (PTSKnown || !live);
+
+    this.state = State.PARSING;
+    demuxer.push(data.payload, initSegment ? initSegment.data : [], currentLevel.audioCodec, currentLevel.videoCodec, fragCurrent, duration, accurateTimeOffset, undefined);
   }
 
   onFragParsingInitSegment (data) {
@@ -1103,7 +1122,7 @@ class StreamController extends TaskLoop {
       // Detect gaps in a fragment  and try to fix it by finding a keyframe in the previous fragment (see _findFragments)
       if (data.type === 'video') {
         frag.dropped = data.dropped;
-        if (frag.dropped) {
+        if (false && frag.dropped) {
           if (!frag.backtracked) {
             const levelDetails = level.details;
             if (levelDetails && frag.sn === levelDetails.startSN) {
@@ -1157,7 +1176,12 @@ class StreamController extends TaskLoop {
         fragNew.sn === fragCurrent.sn &&
         fragNew.level === fragCurrent.level &&
         this.state === State.PARSING) {
-      this.stats.tparsed = window.performance.now();
+      let stats = this.stats[data.frag.sn];
+      if (!stats) {
+        stats = {};
+        this.stats[data.frag.sn] = stats;
+      }
+      stats.tparsed = window.performance.now();
       this.state = State.PARSED;
       this._checkAppendedParsed();
     }
@@ -1255,7 +1279,7 @@ class StreamController extends TaskLoop {
         const media = this.mediaBuffer ? this.mediaBuffer : this.media;
         logger.log(`main buffered : ${TimeRanges.toString(media.buffered)}`);
         this.fragPrevious = frag;
-        const stats = this.stats;
+        const stats = this.stats[frag.sn];
         stats.tbuffered = window.performance.now();
         // we should get rid of this.fragLastKbps
         this.fragLastKbps = Math.round(8 * stats.total / (stats.tbuffered - stats.tfirst));
