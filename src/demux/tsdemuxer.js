@@ -40,6 +40,7 @@ class TSDemuxer {
     this.typeSupported = typeSupported;
     this.remuxer = remuxer;
     this.sampleAes = null;
+    this.remainderData = null;
   }
 
   setDecryptData (decryptdata) {
@@ -65,11 +66,11 @@ class TSDemuxer {
 
   static _syncOffset (data) {
     // scan 1000 first bytes
-    const scanwindow = Math.min(1000, data.length - 3 * 188);
+    // const scanwindow = Math.min(1000, data.length - (1 * 188));
     let i = 0;
-    while (i < scanwindow) {
+    while (i < data.length) {
       // a TS fragment should contain at least 3 TS packets, a PAT, a PMT, and one PID, each starting with 0x47
-      if (data[i] === 0x47 && data[i + 188] === 0x47 && data[i + 2 * 188] === 0x47) {
+      if (data[i] === 0x47) {
         return i;
       } else {
         i++;
@@ -137,7 +138,8 @@ class TSDemuxer {
 
   // feed incoming data to the front of the parsing pipeline
   append (data, timeOffset, contiguous, accurateTimeOffset) {
-    let start, len = data.length, stt, pid, atf, offset, pes,
+    const origData = data;
+    let start, stt, pid, atf, offset, pes,
       unknownPIDs = false;
     this.contiguous = contiguous;
     let pmtParsed = this.pmtParsed,
@@ -159,10 +161,33 @@ class TSDemuxer {
       parseMPEGPES = this._parseMPEGPES.bind(this),
       parseID3PES = this._parseID3PES.bind(this);
 
+    if (this.remainderData) {
+      console.warn('>>> remainder len', this.remainderData.length)
+      const temp = new Uint8Array(data.length + this.remainderData.length);
+      temp.set(this.remainderData);
+      temp.set(data, this.remainderData.length);
+      data = temp;
+      this.remainderData = null;
+    }
+    let len = data.length;
     const syncOffset = TSDemuxer._syncOffset(data);
+    if (syncOffset < 0) {
+      console.warn('>>> syncOffset < 0', syncOffset);
+      this.remainderData = data;
+      return;
+    }
 
     // don't parse last TS packet if incomplete
-    len -= (len + syncOffset) % 188;
+    const remainder = (len - syncOffset) % 188;
+    len -= remainder;
+
+    this.remainderData = data.slice(len);
+    const remainderOffset = TSDemuxer._syncOffset(this.remainderData);
+    if (this.remainderData.length && remainderOffset) {
+      console.warn('>>> remainderData is not the start of a packet', remainderOffset, this.remainderData.length);
+    } else {
+      console.warn('>>> all smiles')
+    }
 
     // loop through TS packets
     for (start = syncOffset; start < len; start += 188) {
@@ -196,6 +221,7 @@ class TSDemuxer {
           }
           break;
         case audioId:
+          break;
           if (stt) {
             if (audioData && (pes = parsePES(audioData)) && pes.pts !== undefined) {
               if (audioTrack.isAAC) {

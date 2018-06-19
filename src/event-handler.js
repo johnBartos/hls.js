@@ -65,6 +65,7 @@ class EventHandler {
   }
 
   onEventGeneric (event, data) {
+    // console.log(`>>>${event}`, data);
     let eventToFunction = function (event, data) {
       let funcName = 'on' + event.replace('hls', '');
       if (typeof this[funcName] !== 'function') {
