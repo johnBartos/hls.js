@@ -53,7 +53,7 @@ class FetchLoader {
         stats.tfirst = Math.max(stats.trequest, performance.now());
         targetURL = response.url;
         if (context.responseType === 'arraybuffer') {
-          return response.arrayBuffer();
+          return createStream(response, callbacks.onProgress, context);
         } else {
           return response.text();
         }
@@ -63,7 +63,7 @@ class FetchLoader {
     }).catch(function (error) {
       callbacks.onError({ text: error.message }, context);
     });
-    // process response Promise
+
     responsePromise.then(function (responseData) {
       if (responseData) {
         stats.tload = Math.max(stats.tfirst, performance.now());
@@ -80,6 +80,26 @@ class FetchLoader {
       }
     });
   }
+}
+
+function createStream (response, onProgress, context) {
+  let size = 0;
+  return new Promise((resolve, reject) => {
+    const reader = response.body.getReader();
+    const pump = () => {
+      return reader.read().then(({ done, value }) => {
+        if (done) {
+          resolve({ byteLength: size, payload: value });
+          return;
+        }
+        size += value.length;
+        console.log(`>>> ${size} bytes streamed`);
+        onProgress({ size }, context, value);
+        return pump();
+      });
+    };
+    pump();
+  });
 }
 
 export default FetchLoader;
