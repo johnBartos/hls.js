@@ -9,8 +9,9 @@ import { logger } from '../utils/logger';
 
 class FragmentLoader extends EventHandler {
   constructor (hls) {
-    super(hls, Event.FRAG_LOADING);
+    super(hls, Event.FRAG_LOADING, Event.FRAG_LOADED);
     this.loaders = {};
+    this.requestQueue = [];
   }
 
   destroy () {
@@ -27,6 +28,7 @@ class FragmentLoader extends EventHandler {
   }
 
   onFragLoading (data) {
+    console.log('>>> loading');
     const frag = data.frag,
       type = frag.type,
       loaders = this.loaders,
@@ -72,7 +74,23 @@ class FragmentLoader extends EventHandler {
       onProgress: this.loadprogress.bind(this)
     };
 
-    loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    if (config.lowLatency) {
+      const queue = this.requestQueue;
+      // if (queue.length) {
+      //   return;
+      // }
+      queue.push(loader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+      if (queue.length === 1) {
+        this._checkQueue();
+      }
+    } else {
+      loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    }
+  }
+
+  onFragLoaded () {
+    this.requestQueue.pop();
+    this._checkQueue();
   }
 
   loadsuccess (response, stats, context, networkDetails = null) {
@@ -110,6 +128,15 @@ class FragmentLoader extends EventHandler {
     let frag = context.frag;
     frag.loaded = stats.loaded;
     this.hls.trigger(Event.FRAG_LOAD_PROGRESS, { frag: frag, stats: stats, networkDetails: networkDetails, payload: data });
+  }
+
+  _checkQueue () {
+    console.log('>>> checking queue', this.requestQueue.length);
+    const queue = this.requestQueue;
+    const startPromise = queue[0];
+    if (startPromise) {
+      startPromise.then(pump => pump());
+    }
   }
 }
 
