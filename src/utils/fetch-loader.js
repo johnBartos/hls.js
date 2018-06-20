@@ -23,37 +23,14 @@ class FetchLoader {
     };
 
     let targetURL = context.url;
-    let request;
-
-    const initParams = {
-      method: 'GET',
-      mode: 'cors',
-      credentials: 'same-origin'
-    };
-
-    const headersObj = {};
-
-    if (context.rangeEnd) {
-      headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
-    } /* jshint ignore:line */
-
-    initParams.headers = new Headers(headersObj);
-
-    if (this.fetchSetup) {
-      request = this.fetchSetup(context, initParams);
-    } else {
-      request = new Request(context.url, initParams);
-    }
-
-    let fetchPromise = fetch(request, initParams);
-
+    let fetchPromise = createFetch(targetURL, context, this.fetchSetup);
     // process fetchPromise
     let responsePromise = fetchPromise.then(function (response) {
       if (response.ok) {
         stats.tfirst = Math.max(stats.trequest, performance.now());
         targetURL = response.url;
         if (context.responseType === 'arraybuffer') {
-          return createStream(response, callbacks.onProgress, context);
+          return response.arrayBuffer();
         } else {
           return response.text();
         }
@@ -80,26 +57,65 @@ class FetchLoader {
       }
     });
   }
+
+  progressiveLoad (context, config, callbacks) {
+    const targetUrl = context.url;
+    return createFetch(targetUrl, context, this.fetchSetup)
+      .then(response => {
+        if (response.ok) {
+          return createStream(response, callbacks.onProgress, callbacks.onSuccess, context);
+        }
+      });
+  }
 }
 
-function createStream (response, onProgress, context) {
+function createFetch (url, context, fetchSetup) {
+  let request;
+
+  const initParams = {
+    method: 'GET',
+    mode: 'cors',
+    credentials: 'same-origin'
+  };
+
+  const headersObj = {};
+
+  if (context.rangeEnd) {
+    headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
+  } /* jshint ignore:line */
+
+  initParams.headers = new Headers(headersObj);
+
+  if (fetchSetup) {
+    request = fetchSetup(context, initParams);
+  } else {
+    request = new Request(context.url, initParams);
+  }
+
+  return fetch(request, initParams);
+}
+
+function createStream (response, onProgress, onComplete, context) {
   let size = 0;
-  return new Promise((resolve, reject) => {
-    const reader = response.body.getReader();
-    const pump = () => {
-      return reader.read().then(({ done, value }) => {
-        if (done) {
-          resolve({ byteLength: size, payload: value });
-          return;
-        }
-        size += value.length;
-        console.log(`>>> ${size} bytes streamed`);
-        onProgress({ size }, context, value);
-        return pump();
-      });
-    };
-    pump();
-  });
+  const reader = response.body.getReader();
+  const pump = () => {
+    reader.read().then(({ done, value }) => {
+      if (done) {
+        const response = {
+          byteLength: size,
+          payload: null
+        };
+        const stats = {};
+        onComplete(response, stats, context);
+        return;
+      }
+      size += value.length;
+      console.log(`>>> ${size} bytes streamed`);
+      onProgress({ size }, context, value);
+      pump();
+    });
+  };
+  return pump;
 }
 
 export default FetchLoader;

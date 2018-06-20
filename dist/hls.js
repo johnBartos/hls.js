@@ -3232,7 +3232,6 @@ var tsdemuxer_TSDemuxer = function () {
 
 
   TSDemuxer.prototype.append = function append(data, timeOffset, contiguous, accurateTimeOffset) {
-    var origData = data;
     var start = void 0,
         stt = void 0,
         pid = void 0,
@@ -3277,15 +3276,12 @@ var tsdemuxer_TSDemuxer = function () {
     }
 
     // don't parse last TS packet if incomplete
-    var remainder = (len - syncOffset) % 188;
-    len -= remainder;
+    len -= (len - syncOffset) % 188;
 
     this.remainderData = data.slice(len);
     var remainderOffset = TSDemuxer._syncOffset(this.remainderData);
     if (this.remainderData.length && remainderOffset) {
       console.warn('>>> remainderData is not the start of a packet', remainderOffset, this.remainderData.length);
-    } else {
-      console.warn('>>> all smiles');
     }
 
     // loop through TS packets
@@ -7301,9 +7297,10 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
   function FragmentLoader(hls) {
     fragment_loader__classCallCheck(this, FragmentLoader);
 
-    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING));
+    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING, events["a" /* default */].FRAG_LOADED));
 
     _this.loaders = {};
+    _this.requestQueue = [];
     return _this;
   }
 
@@ -7321,6 +7318,7 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
   };
 
   FragmentLoader.prototype.onFragLoading = function onFragLoading(data) {
+    console.log('>>> loading');
     var frag = data.frag,
         type = frag.type,
         loaders = this.loaders,
@@ -7367,7 +7365,23 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
       onProgress: this.loadprogress.bind(this)
     };
 
-    loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    if (config.lowLatency) {
+      var queue = this.requestQueue;
+      // if (queue.length) {
+      //   return;
+      // }
+      queue.push(loader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+      if (queue.length === 1) {
+        this._checkQueue();
+      }
+    } else {
+      loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    }
+  };
+
+  FragmentLoader.prototype.onFragLoaded = function onFragLoaded() {
+    this.requestQueue.pop();
+    this._checkQueue();
   };
 
   FragmentLoader.prototype.loadsuccess = function loadsuccess(response, stats, context) {
@@ -7414,6 +7428,17 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
     var frag = context.frag;
     frag.loaded = stats.loaded;
     this.hls.trigger(events["a" /* default */].FRAG_LOAD_PROGRESS, { frag: frag, stats: stats, networkDetails: networkDetails, payload: data });
+  };
+
+  FragmentLoader.prototype._checkQueue = function _checkQueue() {
+    console.log('>>> checking queue', this.requestQueue.length);
+    var queue = this.requestQueue;
+    var startPromise = queue[0];
+    if (startPromise) {
+      startPromise.then(function (pump) {
+        return pump();
+      });
+    }
   };
 
   return FragmentLoader;
@@ -8886,6 +8911,7 @@ var stream_controller_StreamController = function (_TaskLoop) {
     _this._state = State.STOPPED;
     _this.stallReported = false;
     _this.stats = {};
+    _this.fragBuffers = {};
     return _this;
   }
 
@@ -9311,10 +9337,6 @@ var stream_controller_StreamController = function (_TaskLoop) {
   };
 
   StreamController.prototype._loadFragment = function _loadFragment(frag) {
-    // if (this.once) {
-    //   return;
-    // }
-    // this.once = true;
     // Check if fragment is not loaded
     var fragState = this.fragmentTracker.getState(frag);
 
@@ -12732,37 +12754,14 @@ var FetchLoader = function () {
     };
 
     var targetURL = context.url;
-    var request = void 0;
-
-    var initParams = {
-      method: 'GET',
-      mode: 'cors',
-      credentials: 'same-origin'
-    };
-
-    var headersObj = {};
-
-    if (context.rangeEnd) {
-      headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
-    } /* jshint ignore:line */
-
-    initParams.headers = new Headers(headersObj);
-
-    if (this.fetchSetup) {
-      request = this.fetchSetup(context, initParams);
-    } else {
-      request = new Request(context.url, initParams);
-    }
-
-    var fetchPromise = fetch(request, initParams);
-
+    var fetchPromise = createFetch(targetURL, context, this.fetchSetup);
     // process fetchPromise
     var responsePromise = fetchPromise.then(function (response) {
       if (response.ok) {
         stats.tfirst = Math.max(stats.trequest, fetch_loader_performance.now());
         targetURL = response.url;
         if (context.responseType === 'arraybuffer') {
-          return createStream(response, callbacks.onProgress, context);
+          return response.arrayBuffer();
         } else {
           return response.text();
         }
@@ -12790,30 +12789,68 @@ var FetchLoader = function () {
     });
   };
 
+  FetchLoader.prototype.progressiveLoad = function progressiveLoad(context, config, callbacks) {
+    var targetUrl = context.url;
+    return createFetch(targetUrl, context, this.fetchSetup).then(function (response) {
+      if (response.ok) {
+        return createStream(response, callbacks.onProgress, callbacks.onSuccess, context);
+      }
+    });
+  };
+
   return FetchLoader;
 }();
 
-function createStream(response, onProgress, context) {
-  var size = 0;
-  return new Promise(function (resolve, reject) {
-    var reader = response.body.getReader();
-    var pump = function pump() {
-      return reader.read().then(function (_ref) {
-        var done = _ref.done,
-            value = _ref.value;
+function createFetch(url, context, fetchSetup) {
+  var request = void 0;
 
-        if (done) {
-          resolve({ byteLength: size, payload: value });
-          return;
-        }
-        size += value.length;
-        console.log('>>> ' + size + ' bytes streamed');
-        onProgress({ size: size }, context, value);
-        return pump();
-      });
-    };
-    pump();
-  });
+  var initParams = {
+    method: 'GET',
+    mode: 'cors',
+    credentials: 'same-origin'
+  };
+
+  var headersObj = {};
+
+  if (context.rangeEnd) {
+    headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
+  } /* jshint ignore:line */
+
+  initParams.headers = new Headers(headersObj);
+
+  if (fetchSetup) {
+    request = fetchSetup(context, initParams);
+  } else {
+    request = new Request(context.url, initParams);
+  }
+
+  return fetch(request, initParams);
+}
+
+function createStream(response, onProgress, onComplete, context) {
+  var size = 0;
+  var reader = response.body.getReader();
+  var pump = function pump() {
+    reader.read().then(function (_ref) {
+      var done = _ref.done,
+          value = _ref.value;
+
+      if (done) {
+        var _response = {
+          byteLength: size,
+          payload: null
+        };
+        var stats = {};
+        onComplete(_response, stats, context);
+        return;
+      }
+      size += value.length;
+      console.log('>>> ' + size + ' bytes streamed');
+      onProgress({ size: size }, context, value);
+      pump();
+    });
+  };
+  return pump;
 }
 
 /* harmony default export */ var fetch_loader = (FetchLoader);
@@ -17960,7 +17997,7 @@ var hlsDefaultConfig = {
   fpsController: fps_controller,
   stretchShortVideoTrack: false, // used by mp4-remuxer
   maxAudioFramesDrift: 1, // used by mp4-remuxer
-  forceKeyFrameOnDiscontinuity: true, // used by ts-demuxer
+  forceKeyFrameOnDiscontinuity: false, // used by ts-demuxer
   abrEwmaFastLive: 3, // used by abr-controller
   abrEwmaSlowLive: 9, // used by abr-controller
   abrEwmaFastVoD: 3, // used by abr-controller

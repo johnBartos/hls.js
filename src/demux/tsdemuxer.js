@@ -138,7 +138,6 @@ class TSDemuxer {
 
   // feed incoming data to the front of the parsing pipeline
   append (data, timeOffset, contiguous, accurateTimeOffset) {
-    const origData = data;
     let start, stt, pid, atf, offset, pes,
       unknownPIDs = false;
     this.contiguous = contiguous;
@@ -178,15 +177,12 @@ class TSDemuxer {
     }
 
     // don't parse last TS packet if incomplete
-    const remainder = (len - syncOffset) % 188;
-    len -= remainder;
+    len -= (len - syncOffset) % 188;
 
     this.remainderData = data.slice(len);
     const remainderOffset = TSDemuxer._syncOffset(this.remainderData);
     if (this.remainderData.length && remainderOffset) {
       console.warn('>>> remainderData is not the start of a packet', remainderOffset, this.remainderData.length);
-    } else {
-      console.warn('>>> all smiles')
     }
 
     // loop through TS packets
