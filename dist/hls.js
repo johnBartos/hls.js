@@ -3240,6 +3240,9 @@ var tsdemuxer_TSDemuxer = function () {
         pes = void 0,
         unknownPIDs = false;
     this.contiguous = contiguous;
+    this.timeOffset = timeOffset;
+    this.accurateTimeOffset = accurateTimeOffset;
+
     var pmtParsed = this.pmtParsed,
         avcTrack = this._avcTrack,
         audioTrack = this._audioTrack,
@@ -3399,6 +3402,28 @@ var tsdemuxer_TSDemuxer = function () {
         this.observer.trigger(events["a" /* default */].ERROR, { type: errors["b" /* ErrorTypes */].MEDIA_ERROR, details: errors["a" /* ErrorDetails */].FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
       }
     }
+
+    this.flush();
+  };
+
+  TSDemuxer.prototype.flush = function flush() {
+    var contiguous = this.contiguous,
+        timeOffset = this.timeOffset,
+        accurateTimeOffset = this.accurateTimeOffset;
+
+    var pes = void 0;
+    var avcTrack = this._avcTrack;
+    var audioTrack = this._audioTrack;
+    var id3Track = this._id3Track;
+    var avcData = avcTrack.pesData;
+    var audioData = audioTrack.pesData;
+    var id3Data = id3Track.pesData;
+    var parsePES = this._parsePES;
+    var parseAACPES = this._parseAACPES.bind(this);
+    var parseMPEGPES = this._parseMPEGPES.bind(this);
+    var parseID3PES = this._parseID3PES.bind(this);
+    var parseAVCPES = this._parseAVCPES.bind(this);
+
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
       parseAVCPES(pes, true);
@@ -3434,6 +3459,7 @@ var tsdemuxer_TSDemuxer = function () {
     }
 
     if (this.sampleAes == null) {
+      console.warn('>>> remuxing');
       this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     } else {
       this.decryptAndRemux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
@@ -3595,6 +3621,7 @@ var tsdemuxer_TSDemuxer = function () {
       // if PES parsed length is not zero and greater than total received length, stop parsing. PES might be truncated
       // minus 6 : PES header size
       if (pesLen && pesLen > stream.size - 6) {
+        console.warn('>>> throwing away partial pes');
         return null;
       }
 
@@ -3715,6 +3742,10 @@ var tsdemuxer_TSDemuxer = function () {
     }
 
     units.forEach(function (unit) {
+      if (last) {
+        var sliceType = new exp_golomb(unit.data).readSliceType();
+        console.warn('>>>', sliceType);
+      }
       switch (unit.type) {
         // NDR
         case 1:
@@ -3732,13 +3763,13 @@ var tsdemuxer_TSDemuxer = function () {
           // only check slice type to detect KF in case SPS found in same packet (any keyframe is preceded by SPS ...)
           if (spsfound && data.length > 4) {
             // retrieve slice type by parsing beginning of NAL unit (follow H264 spec, slice_header definition) to detect keyframe embedded in NDR
-            var sliceType = new exp_golomb(data).readSliceType();
+            var _sliceType = new exp_golomb(data).readSliceType();
             // 2 : I slice, 4 : SI slice, 7 : I slice, 9: SI slice
             // SI slice : A slice that is coded using intra prediction only and using quantisation of the prediction samples.
             // An SI slice can be coded such that its decoded samples can be constructed identically to an SP slice.
             // I slice: A slice that is not an SI slice that is decoded using intra prediction only.
             // if (sliceType === 2 || sliceType === 7) {
-            if (sliceType === 2 || sliceType === 4 || sliceType === 7 || sliceType === 9) {
+            if (_sliceType === 2 || _sliceType === 4 || _sliceType === 7 || _sliceType === 9) {
               avcSample.key = true;
             }
           }
@@ -3754,7 +3785,7 @@ var tsdemuxer_TSDemuxer = function () {
           if (debug) {
             avcSample.debug += 'IDR ';
           }
-
+          console.warn('>>> kf found');
           avcSample.key = true;
           avcSample.frame = true;
           break;
@@ -3880,7 +3911,7 @@ var tsdemuxer_TSDemuxer = function () {
           if (avcSample) {
             pushAccesUnit(avcSample, track);
           }
-
+          // console.warn('>>> AUD found')
           avcSample = _this.avcSample = createAVCSample(false, pes.pts, pes.dts, debug ? 'AUD ' : '');
           break;
         // Filler Data
@@ -5855,6 +5886,12 @@ var demuxer_inline_DemuxerInline = function () {
     }
 
     demuxer.append(data, timeOffset, contiguous, accurateTimeOffset);
+  };
+
+  DemuxerInline.prototype.flush = function flush() {
+    if (this.demuxer) {
+      this.demuxer.flush();
+    }
   };
 
   return DemuxerInline;
@@ -8244,6 +8281,10 @@ var demuxer_Demuxer = function () {
     }
   };
 
+  Demuxer.prototype.flush = function flush() {
+    this.demuxer.flush();
+  };
+
   return Demuxer;
 }();
 
@@ -9836,6 +9877,9 @@ var stream_controller_StreamController = function (_TaskLoop) {
           demuxer.push(data.payload, initSegmentData, audioCodec, currentLevel.videoCodec, fragCurrent, duration, accurateTimeOffset, undefined);
         }
       }
+    }
+    if (this.demuxer) {
+      // this.demuxer.flush();
     }
     this.fragLoadError = 0;
   };
