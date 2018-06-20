@@ -915,6 +915,9 @@ class StreamController extends BaseStreamController {
         }
       }
     }
+    if (this.demuxer) {
+      // this.demuxer.flush();
+    }
     this.fragLoadError = 0;
   }
 

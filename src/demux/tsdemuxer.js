@@ -141,6 +141,9 @@ class TSDemuxer {
     let start, stt, pid, atf, offset, pes,
       unknownPIDs = false;
     this.contiguous = contiguous;
+    this.timeOffset = timeOffset;
+    this.accurateTimeOffset = accurateTimeOffset;
+
     let pmtParsed = this.pmtParsed,
       avcTrack = this._avcTrack,
       audioTrack = this._audioTrack,
@@ -300,6 +303,25 @@ class TSDemuxer {
         this.observer.trigger(Event.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
       }
     }
+
+    this.flush();
+  }
+
+  flush () {
+    const { contiguous, timeOffset, accurateTimeOffset } = this;
+    let pes;
+    let avcTrack = this._avcTrack;
+    let audioTrack = this._audioTrack;
+    let id3Track = this._id3Track;
+    let avcData = avcTrack.pesData;
+    let audioData = audioTrack.pesData;
+    let id3Data = id3Track.pesData;
+    let parsePES = this._parsePES;
+    let parseAACPES = this._parseAACPES.bind(this);
+    let parseMPEGPES = this._parseMPEGPES.bind(this);
+    let parseID3PES = this._parseID3PES.bind(this);
+    const parseAVCPES = this._parseAVCPES.bind(this);
+
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
       parseAVCPES(pes, true);
@@ -335,6 +357,7 @@ class TSDemuxer {
     }
 
     if (this.sampleAes == null) {
+      console.warn('>>> remuxing');
       this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     } else {
       this.decryptAndRemux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
@@ -480,6 +503,7 @@ class TSDemuxer {
       // if PES parsed length is not zero and greater than total received length, stop parsing. PES might be truncated
       // minus 6 : PES header size
       if (pesLen && pesLen > stream.size - 6) {
+        console.warn('>>> throwing away partial pes')
         return null;
       }
 
@@ -600,6 +624,10 @@ class TSDemuxer {
     }
 
     units.forEach(unit => {
+      if (last) {
+        let sliceType = new ExpGolomb(unit.data).readSliceType();
+        console.warn('>>>', sliceType);
+      }
       switch (unit.type) {
       // NDR
       case 1:
@@ -639,7 +667,7 @@ class TSDemuxer {
         if (debug) {
           avcSample.debug += 'IDR ';
         }
-
+        console.warn('>>> kf found');
         avcSample.key = true;
         avcSample.frame = true;
         break;
@@ -765,7 +793,7 @@ class TSDemuxer {
         if (avcSample) {
           pushAccesUnit(avcSample, track);
         }
-
+      // console.warn('>>> AUD found')
         avcSample = this.avcSample = createAVCSample(false, pes.pts, pes.dts, debug ? 'AUD ' : '');
         break;
         // Filler Data
