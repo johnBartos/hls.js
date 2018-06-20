@@ -60,6 +60,7 @@ class StreamController extends TaskLoop {
     this._state = State.STOPPED;
     this.stallReported = false;
     this.stats = {};
+    this.fragBuffers = {};
   }
 
   onHandlerDestroying () {
@@ -470,10 +471,6 @@ class StreamController extends TaskLoop {
   }
 
   _loadFragment (frag) {
-    // if (this.once) {
-    //   return;
-    // }
-    // this.once = true;
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
