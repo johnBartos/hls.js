@@ -114,6 +114,12 @@ class DemuxerInline {
 
     demuxer.append(data, timeOffset, contiguous, accurateTimeOffset);
   }
+
+  flush () {
+    if (this.demuxer) {
+      this.demuxer.flush();
+    }
+  }
 }
 
 export default DemuxerInline;

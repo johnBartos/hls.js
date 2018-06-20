@@ -146,6 +146,10 @@ class Demuxer {
       break;
     }
   }
+
+  flush () {
+    this.demuxer.flush();
+  }
 }
 
 export default Demuxer;
