@@ -41,6 +41,7 @@ class TSDemuxer {
     this.remuxer = remuxer;
     this.sampleAes = null;
     this.remainderData = null;
+    this.leftoverAvcSamples = [];
   }
 
   setDecryptData (decryptdata) {
@@ -113,6 +114,7 @@ class TSDemuxer {
    * @param {number} duration (in TS timescale = 90kHz)
    */
   resetInitSegment (initSegment, audioCodec, videoCodec, duration) {
+    console.warn('>>> reset demuxer')
     this.pmtParsed = false;
     this._pmtId = -1;
 
@@ -166,7 +168,7 @@ class TSDemuxer {
     const avcBuffer = [];
 
     if (this.remainderData) {
-      console.warn('>>> remainder len', this.remainderData.length)
+      // console.warn('>>> remainder len', this.remainderData.length)
       const temp = new Uint8Array(data.length + this.remainderData.length);
       temp.set(this.remainderData);
       temp.set(data, this.remainderData.length);
@@ -176,7 +178,7 @@ class TSDemuxer {
     let len = data.length;
     const syncOffset = TSDemuxer._syncOffset(data);
     if (syncOffset < 0) {
-      console.warn('>>> syncOffset < 0', syncOffset);
+      // console.warn('>>> syncOffset < 0', syncOffset);
       this.remainderData = data;
       return;
     }
@@ -305,12 +307,13 @@ class TSDemuxer {
         this.observer.trigger(Event.ERROR, { type: ErrorTypes.MEDIA_ERROR, details: ErrorDetails.FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
       }
     }
-
     this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
-    // avcTrack.pesData = avcData;
+    avcTrack.pesData = avcData;
+    // this.flush();
   }
 
   flush () {
+    console.warn('>>> flush')
     const { contiguous, timeOffset, accurateTimeOffset } = this;
     let pes;
     let avcTrack = this._avcTrack;
@@ -327,10 +330,12 @@ class TSDemuxer {
 
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
+      console.warn('>>> parsing last pes')
       parseAVCPES(pes, true);
       avcTrack.pesData = null;
     } else {
       // either avcData null or PES truncated, keep it for next frag parsing
+      console.warn('>>> saving pes')
       avcTrack.pesData = avcData;
     }
 
@@ -818,7 +823,9 @@ class TSDemuxer {
     });
     // if last PES packet, push samples
     if (last && avcSample) {
-      pushAccesUnit(avcSample, track);
+      console.warn('>>> pushing last PES')
+      // pushAccesUnit(avcSample, track);
+      this.leftoverAvcSamples.push(avcSample);
       this.avcSample = null;
     }
   }
