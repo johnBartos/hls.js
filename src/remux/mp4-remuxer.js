@@ -79,7 +79,7 @@ class MP4Remuxer {
           this.remuxVideo(videoTrack, videoTimeOffset, contiguous, audioTrackLength, accurateTimeOffset);
         }
       } else {
-        // logger.log('nb AVC samples:' + videoTrack.samples.length);
+        console.warn('>>> nb AVC samples:' + videoTrack.samples.length);
         if (nbVideoSamples) {
           let videoData = this.remuxVideo(videoTrack, videoTimeOffset, contiguous, 0, accurateTimeOffset);
           if (videoData && audioTrack.codec) {
