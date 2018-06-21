@@ -3127,6 +3127,7 @@ var tsdemuxer_TSDemuxer = function () {
     this.remuxer = remuxer;
     this.sampleAes = null;
     this.remainderData = null;
+    this.leftoverAvcSamples = [];
   }
 
   TSDemuxer.prototype.setDecryptData = function setDecryptData(decryptdata) {
@@ -3203,6 +3204,7 @@ var tsdemuxer_TSDemuxer = function () {
 
 
   TSDemuxer.prototype.resetInitSegment = function resetInitSegment(initSegment, audioCodec, videoCodec, duration) {
+    console.warn('>>> reset demuxer');
     this.pmtParsed = false;
     this._pmtId = -1;
 
@@ -3265,7 +3267,7 @@ var tsdemuxer_TSDemuxer = function () {
     var avcBuffer = [];
 
     if (this.remainderData) {
-      console.warn('>>> remainder len', this.remainderData.length);
+      // console.warn('>>> remainder len', this.remainderData.length)
       var temp = new Uint8Array(data.length + this.remainderData.length);
       temp.set(this.remainderData);
       temp.set(data, this.remainderData.length);
@@ -3275,7 +3277,7 @@ var tsdemuxer_TSDemuxer = function () {
     var len = data.length;
     var syncOffset = TSDemuxer._syncOffset(data);
     if (syncOffset < 0) {
-      console.warn('>>> syncOffset < 0', syncOffset);
+      // console.warn('>>> syncOffset < 0', syncOffset);
       this.remainderData = data;
       return;
     }
@@ -3404,12 +3406,13 @@ var tsdemuxer_TSDemuxer = function () {
         this.observer.trigger(events["a" /* default */].ERROR, { type: errors["b" /* ErrorTypes */].MEDIA_ERROR, details: errors["a" /* ErrorDetails */].FRAG_PARSING_ERROR, fatal: false, reason: 'TS packet did not start with 0x47' });
       }
     }
-
     this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
-    // avcTrack.pesData = avcData;
+    avcTrack.pesData = avcData;
+    // this.flush();
   };
 
   TSDemuxer.prototype.flush = function flush() {
+    console.warn('>>> flush');
     var contiguous = this.contiguous,
         timeOffset = this.timeOffset,
         accurateTimeOffset = this.accurateTimeOffset;
@@ -3429,10 +3432,12 @@ var tsdemuxer_TSDemuxer = function () {
 
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
+      console.warn('>>> parsing last pes');
       parseAVCPES(pes, true);
       avcTrack.pesData = null;
     } else {
       // either avcData null or PES truncated, keep it for next frag parsing
+      console.warn('>>> saving pes');
       avcTrack.pesData = avcData;
     }
 
@@ -3936,7 +3941,9 @@ var tsdemuxer_TSDemuxer = function () {
     });
     // if last PES packet, push samples
     if (last && avcSample) {
-      pushAccesUnit(avcSample, track);
+      console.warn('>>> pushing last PES');
+      // pushAccesUnit(avcSample, track);
+      this.leftoverAvcSamples.push(avcSample);
       this.avcSample = null;
     }
   };
@@ -4976,7 +4983,7 @@ var mp4_remuxer_MP4Remuxer = function () {
           this.remuxVideo(videoTrack, videoTimeOffset, contiguous, audioTrackLength, accurateTimeOffset);
         }
       } else {
-        // logger.log('nb AVC samples:' + videoTrack.samples.length);
+        console.warn('>>> nb AVC samples:' + videoTrack.samples.length);
         if (nbVideoSamples) {
           var videoData = this.remuxVideo(videoTrack, videoTimeOffset, contiguous, 0, accurateTimeOffset);
           if (videoData && audioTrack.codec) {
