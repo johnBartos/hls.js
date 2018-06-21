@@ -163,6 +163,8 @@ class TSDemuxer {
       parseMPEGPES = this._parseMPEGPES.bind(this),
       parseID3PES = this._parseID3PES.bind(this);
 
+    const avcBuffer = [];
+
     if (this.remainderData) {
       console.warn('>>> remainder len', this.remainderData.length)
       const temp = new Uint8Array(data.length + this.remainderData.length);
@@ -304,7 +306,8 @@ class TSDemuxer {
       }
     }
 
-    this.flush();
+    this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
+    // avcTrack.pesData = avcData;
   }
 
   flush () {
@@ -615,7 +618,7 @@ class TSDemuxer {
       };
     // free pes.data to save up some memory
     pes.data = null;
-
+    let buffer = [];
     // if new NAL units found and last sample still there, let's push ...
     // this helps parsing streams with missing AUD (only do this if AUD never found)
     if (avcSample && units.length && !track.audFound) {
