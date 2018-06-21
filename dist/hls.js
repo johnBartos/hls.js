@@ -3262,6 +3262,8 @@ var tsdemuxer_TSDemuxer = function () {
         parseMPEGPES = this._parseMPEGPES.bind(this),
         parseID3PES = this._parseID3PES.bind(this);
 
+    var avcBuffer = [];
+
     if (this.remainderData) {
       console.warn('>>> remainder len', this.remainderData.length);
       var temp = new Uint8Array(data.length + this.remainderData.length);
@@ -3403,7 +3405,8 @@ var tsdemuxer_TSDemuxer = function () {
       }
     }
 
-    this.flush();
+    this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
+    // avcTrack.pesData = avcData;
   };
 
   TSDemuxer.prototype.flush = function flush() {
@@ -3733,7 +3736,7 @@ var tsdemuxer_TSDemuxer = function () {
     };
     // free pes.data to save up some memory
     pes.data = null;
-
+    var buffer = [];
     // if new NAL units found and last sample still there, let's push ...
     // this helps parsing streams with missing AUD (only do this if AUD never found)
     if (avcSample && units.length && !track.audFound) {
@@ -9879,7 +9882,7 @@ var stream_controller_StreamController = function (_TaskLoop) {
       }
     }
     if (this.demuxer) {
-      // this.demuxer.flush();
+      this.demuxer.flush();
     }
     this.fragLoadError = 0;
   };

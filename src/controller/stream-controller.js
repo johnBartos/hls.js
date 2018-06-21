@@ -1006,7 +1006,7 @@ class StreamController extends TaskLoop {
       }
     }
     if (this.demuxer) {
-      // this.demuxer.flush();
+      this.demuxer.flush();
     }
     this.fragLoadError = 0;
   }
