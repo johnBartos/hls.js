@@ -57,16 +57,6 @@ class FetchLoader {
       }
     });
   }
-
-  progressiveLoad (context, config, callbacks) {
-    const targetUrl = context.url;
-    return createFetch(targetUrl, context, this.fetchSetup)
-      .then(response => {
-        if (response.ok) {
-          return createStream(response, callbacks.onProgress, callbacks.onSuccess, context);
-        }
-      });
-  }
 }
 
 function createFetch (url, context, fetchSetup) {
@@ -93,41 +83,6 @@ function createFetch (url, context, fetchSetup) {
   }
 
   return fetch(request, initParams);
-}
-
-function createStream (response, onProgress, onComplete, context) {
-  let size = 0;
-  let abortFlag = false;
-  const reader = response.body.getReader();
-  const pump = () => {
-    if (abortFlag) {
-      return;
-    }
-    reader.read().then(({ done, value }) => {
-      if (abortFlag) {
-        return;
-      }
-      if (done) {
-        const response = {
-          byteLength: size,
-          payload: null
-        };
-        const stats = {};
-        onComplete(response, stats, context);
-        return;
-      }
-      size += value.length;
-      onProgress({ size }, context, value);
-      pump();
-    });
-  };
-
-  const abort = () => {
-    console.warn('>>> progressive loader aborted');
-    abortFlag = true;
-    reader.cancel();
-  };
-  return { abort, pump };
 }
 
 export default FetchLoader;
