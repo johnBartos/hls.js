@@ -114,7 +114,6 @@ class TSDemuxer {
    * @param {number} duration (in TS timescale = 90kHz)
    */
   resetInitSegment (initSegment, audioCodec, videoCodec, duration) {
-    console.warn('>>> reset demuxer')
     this.pmtParsed = false;
     this._pmtId = -1;
 
@@ -309,11 +308,11 @@ class TSDemuxer {
     }
     this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     avcTrack.pesData = avcData;
+    // audioTrack.pesData = audioData
     // this.flush();
   }
 
   flush () {
-    console.warn('>>> flush')
     const { contiguous, timeOffset, accurateTimeOffset } = this;
     let pes;
     let avcTrack = this._avcTrack;
@@ -330,12 +329,12 @@ class TSDemuxer {
 
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
-      console.warn('>>> parsing last pes')
+      // console.warn('>>> parsing last pes')
       parseAVCPES(pes, true);
       avcTrack.pesData = null;
     } else {
       // either avcData null or PES truncated, keep it for next frag parsing
-      console.warn('>>> saving pes')
+      // console.warn('>>> saving pes')
       avcTrack.pesData = avcData;
     }
 
@@ -365,7 +364,7 @@ class TSDemuxer {
     }
 
     if (this.sampleAes == null) {
-      console.warn('>>> remuxing');
+      // console.warn('>>> remuxing');
       this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     } else {
       this.decryptAndRemux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
@@ -511,7 +510,6 @@ class TSDemuxer {
       // if PES parsed length is not zero and greater than total received length, stop parsing. PES might be truncated
       // minus 6 : PES header size
       if (pesLen && pesLen > stream.size - 6) {
-        console.warn('>>> throwing away partial pes')
         return null;
       }
 
@@ -623,7 +621,6 @@ class TSDemuxer {
       };
     // free pes.data to save up some memory
     pes.data = null;
-    let buffer = [];
     // if new NAL units found and last sample still there, let's push ...
     // this helps parsing streams with missing AUD (only do this if AUD never found)
     if (avcSample && units.length && !track.audFound) {
@@ -632,10 +629,6 @@ class TSDemuxer {
     }
 
     units.forEach(unit => {
-      if (last) {
-        let sliceType = new ExpGolomb(unit.data).readSliceType();
-        console.warn('>>>', sliceType);
-      }
       switch (unit.type) {
       // NDR
       case 1:
@@ -675,7 +668,6 @@ class TSDemuxer {
         if (debug) {
           avcSample.debug += 'IDR ';
         }
-        console.warn('>>> kf found');
         avcSample.key = true;
         avcSample.frame = true;
         break;
@@ -801,7 +793,6 @@ class TSDemuxer {
         if (avcSample) {
           pushAccesUnit(avcSample, track);
         }
-      // console.warn('>>> AUD found')
         avcSample = this.avcSample = createAVCSample(false, pes.pts, pes.dts, debug ? 'AUD ' : '');
         break;
         // Filler Data
@@ -822,12 +813,10 @@ class TSDemuxer {
       }
     });
     // if last PES packet, push samples
-    if (last && avcSample) {
-      console.warn('>>> pushing last PES')
-      // pushAccesUnit(avcSample, track);
-      this.leftoverAvcSamples.push(avcSample);
-      this.avcSample = null;
-    }
+    // if (last && avcSample) {
+    //   pushAccesUnit(avcSample, track);
+    //   this.avcSample = null;
+    // }
   }
 
   _insertSampleInOrder (arr, data) {

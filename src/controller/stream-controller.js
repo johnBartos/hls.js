@@ -491,7 +491,11 @@ class StreamController extends TaskLoop {
       frag.autoLevel = this.hls.autoLevelEnabled;
       frag.bitrateTest = this.bitrateTest;
 
-      this.hls.trigger(Event.FRAG_LOADING, { frag });
+      if (this.config.lowLatency) {
+        this.hls.trigger(Event.FRAG_LOADING_PROGRESSIVE, { frag });
+      } else {
+        this.hls.trigger(Event.FRAG_LOADING, { frag });
+      }
       // lazy demuxer init, as this could take some time ... do it during frag loading
       if (!this.demuxer) {
         this.demuxer = new Demuxer(this.hls, 'main');
@@ -763,7 +767,7 @@ class StreamController extends TaskLoop {
 
     let mediaBuffer = this.mediaBuffer ? this.mediaBuffer : media;
     let bufferInfo = BufferHelper.bufferInfo(mediaBuffer, currentTime, this.config.maxBufferHole);
-    if (this.state === State.FRAG_LOADING) {
+    if (true) {
       let fragCurrent = this.fragCurrent;
       // check if we are seeking to a unbuffered area AND if frag loading is in progress
       if (bufferInfo.len === 0 && fragCurrent) {
@@ -772,10 +776,8 @@ class StreamController extends TaskLoop {
           fragEndOffset = fragCurrent.start + fragCurrent.duration + tolerance;
         // check if we seek position will be out of currently loaded frag range : if out cancel frag load, if in, don't do anything
         if (currentTime < fragStartOffset || currentTime > fragEndOffset) {
-          if (fragCurrent.loader) {
-            logger.log('seeking outside of buffer while fragment load in progress, cancel fragment load');
-            fragCurrent.loader.abort();
-          }
+          logger.log('seeking outside of buffer while fragment load in progress, cancel fragment load');
+          this.hls.trigger(Event.FRAG_LOAD_ABORT);
           this.fragCurrent = null;
           this.fragPrevious = null;
           // switch to IDLE state to load new fragment

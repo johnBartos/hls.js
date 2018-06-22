@@ -414,7 +414,7 @@ class BufferController extends EventHandler {
       logger.log('Media Source duration is set to Infinity');
       this._msDuration = this.mediaSource.duration = Infinity;
     } else if ((this._levelDuration > this._msDuration && this._levelDuration > duration) ||
-      (duration === Infinity || isNaN(duration))) {
+      (duration === Infinity || isNaN(duration)) || config.lowLatency) {
       // levelDuration was the last value we set.
       // not using mediaSource.duration as the browser may tweak this value
       // only update Media Source duration if its value increase, this is to avoid
