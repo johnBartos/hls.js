@@ -413,9 +413,7 @@ class BufferController extends EventHandler {
       logger.log('Media Source duration is set to Infinity');
       this._msDuration = this.mediaSource.duration = Infinity;
     } else if ((this._levelDuration > this._msDuration && this._levelDuration > duration) ||
-      (duration === Infinity || isNaN(duration)) || config.lowLatency) {
-    } else if ((this._levelDuration > this._msDuration && this._levelDuration > duration) || !Number.isFinite(duration)
-        || config.lowLatency) {
+      (duration === Infinity || isNaN(duration)) || (config.lowLatency && this._msDuration !== this._levelDuration)) {
       // levelDuration was the last value we set.
       // not using mediaSource.duration as the browser may tweak this value
       // only update Media Source duration if its value increase, this is to avoid
@@ -462,6 +460,7 @@ class BufferController extends EventHandler {
   }
 
   doAppending () {
+    console.log('%c >>> appending', 'color: red');
     let hls = this.hls, sourceBuffer = this.sourceBuffer, segments = this.segments;
     if (Object.keys(sourceBuffer).length) {
       if (this.media.error) {
