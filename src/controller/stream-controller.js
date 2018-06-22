@@ -422,7 +422,6 @@ class StreamController extends TaskLoop {
     }
     if (foundFrag) {
       frag = foundFrag;
-      return frag;
       const curSNIdx = frag.sn - levelDetails.startSN;
       const sameLevel = fragPrevious && frag.level === fragPrevious.level;
       const prevFrag = fragments[curSNIdx - 1];
@@ -476,7 +475,6 @@ class StreamController extends TaskLoop {
   }
 
   _loadFragment (frag) {
-    console.log('>>> loading fragment')
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
@@ -770,6 +768,9 @@ class StreamController extends TaskLoop {
     let bufferInfo = BufferHelper.bufferInfo(mediaBuffer, currentTime, this.config.maxBufferHole);
     if (true) {
       let fragCurrent = this.fragCurrent;
+      if (fragCurrent.loader) {
+        fragCurrent.loader.abort();
+      }
       // check if we are seeking to a unbuffered area AND if frag loading is in progress
       if (bufferInfo.len === 0 && fragCurrent) {
         let tolerance = config.maxFragLookUpTolerance,
@@ -1127,7 +1128,7 @@ class StreamController extends TaskLoop {
       // Detect gaps in a fragment  and try to fix it by finding a keyframe in the previous fragment (see _findFragments)
       if (data.type === 'video') {
         frag.dropped = data.dropped;
-        if (false && frag.dropped) {
+        if (frag.dropped) {
           if (!frag.backtracked) {
             const levelDetails = level.details;
             if (levelDetails && frag.sn === levelDetails.startSN) {
@@ -1445,6 +1446,7 @@ class StreamController extends TaskLoop {
       this.nextLoadPosition = this.startPosition;
     }
     this.demuxer.flush(true);
+    this.flushMainBuffer(0, Number.POSITIVE_INFINITY);
     this.tick();
   }
 

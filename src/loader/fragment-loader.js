@@ -78,6 +78,11 @@ class FragmentLoader extends EventHandler {
     const { loaderCallbacks, requestQueue } = this;
     const frag = data.frag;
 
+    if (frag.loader && !frag.loader.abortFlag) {
+      console.log('>>> not redownloading in-flight frag');
+      return;
+    }
+
     const loaderContext = { url: frag.url, frag, responseType: 'arraybuffer' };
     const loader = frag.loader = new ProgressiveLoader(loaderContext, loaderCallbacks);
     // Start downloading the fragment. This doesn't stream the bytes yet
