@@ -148,7 +148,9 @@ class Demuxer {
   }
 
   flush (reset) {
-    this.demuxer.flush(reset);
+    if (this.demuxer) {
+      this.demuxer.flush(reset);
+    }
   }
 }
 

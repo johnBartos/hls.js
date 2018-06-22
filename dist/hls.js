@@ -8399,7 +8399,9 @@ var demuxer_Demuxer = function () {
   };
 
   Demuxer.prototype.flush = function flush(reset) {
-    this.demuxer.flush(reset);
+    if (this.demuxer) {
+      this.demuxer.flush(reset);
+    }
   };
 
   return Demuxer;
@@ -19193,6 +19195,8 @@ var DemuxerWorker = function DemuxerWorker(self) {
       case 'demux':
         self.demuxer.push(data.data, data.decryptdata, data.initSegment, data.audioCodec, data.videoCodec, data.timeOffset, data.discontinuity, data.trackSwitch, data.contiguous, data.duration, data.accurateTimeOffset, data.defaultInitPTS);
         break;
+      case 'flush':
+        self.demuxer.flush(data);
       default:
         break;
     }
