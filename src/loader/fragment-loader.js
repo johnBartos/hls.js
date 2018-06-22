@@ -9,9 +9,26 @@ import { logger } from '../utils/logger';
 
 class FragmentLoader extends EventHandler {
   constructor (hls) {
-    super(hls, Event.FRAG_LOADING, Event.FRAG_LOADED);
+    super(hls, Event.FRAG_LOADING, Event.FRAG_LOADING_PROGRESSIVE, Event.FRAG_LOAD_ABORT);
+    const config = this.config = hls.config;
     this.loaders = {};
     this.requestQueue = [];
+    this.loaderCallbacks = {
+      onSuccess: this.loadsuccess.bind(this),
+      onError: this.loaderror.bind(this),
+      onTimeout: this.loadtimeout.bind(this),
+      onProgress: this.loadprogress.bind(this)
+    };
+    this.loaderConfig = {
+      timeout: config.fragLoadingTimeOut,
+      maxRetry: 0,
+      retryDelay: 0,
+      maxRetryDelay: config.fragLoadingMaxRetryTimeout
+    };
+
+    if (config.lowLatency) {
+      this.progressiveLoader = new config.loader(hls);
+    }
   }
 
   destroy () {
@@ -28,13 +45,11 @@ class FragmentLoader extends EventHandler {
   }
 
   onFragLoading (data) {
-    console.log('>>> loading');
-    const frag = data.frag,
-      type = frag.type,
-      loaders = this.loaders,
-      config = this.hls.config,
-      FragmentILoader = config.fLoader,
-      DefaultILoader = config.loader;
+    const { config, loaderCallbacks, loaderConfig, loaders } = this;
+    const frag = data.frag;
+    const type = frag.type;
+    const FragmentILoader = config.fLoader;
+    const DefaultILoader = config.loader;
 
     // reset fragment state
     frag.loaded = 0;
@@ -48,57 +63,53 @@ class FragmentLoader extends EventHandler {
     loader = loaders[type] = frag.loader =
       config.fLoader ? new FragmentILoader(config) : new DefaultILoader(config);
 
-    let loaderContext, loaderConfig, loaderCallbacks;
-
-    loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer', progressData: false };
-
-    let start = frag.byteRangeStartOffset,
-      end = frag.byteRangeEndOffset;
+    const loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer', progressData: false };
+    const start = frag.byteRangeStartOffset;
+    const end = frag.byteRangeEndOffset;
 
     if (Number.isFinite(start) && Number.isFinite(end)) {
       loaderContext.rangeStart = start;
       loaderContext.rangeEnd = end;
     }
 
-    loaderConfig = {
-      timeout: config.fragLoadingTimeOut,
-      maxRetry: 0,
-      retryDelay: 0,
-      maxRetryDelay: config.fragLoadingMaxRetryTimeout
-    };
+    loader.load(loaderContext, loaderConfig, loaderCallbacks);
+  }
 
-    loaderCallbacks = {
-      onSuccess: this.loadsuccess.bind(this),
-      onError: this.loaderror.bind(this),
-      onTimeout: this.loadtimeout.bind(this),
-      onProgress: this.loadprogress.bind(this)
-    };
+  onFragLoadingProgressive (data) {
+    console.log('>>> loading');
+    const { loaderCallbacks, loaderConfig, progressiveLoader, requestQueue } = this;
+    const frag = data.frag;
 
-    if (config.lowLatency) {
-      const queue = this.requestQueue;
-      // if (queue.length) {
-      //   return;
-      // }
-      queue.push(loader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
-      if (queue.length === 1) {
-        this._checkQueue();
-      }
-    } else {
-      loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    if (requestQueue.length) {
+      return;
+    }
+
+    const loaderContext = { url: frag.url, frag, responseType: 'arraybuffer' };
+    requestQueue.push(progressiveLoader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+    if (requestQueue.length === 1) {
+      this._checkQueue();
     }
   }
 
-  onFragLoaded () {
-    this.requestQueue.pop();
-    this._checkQueue();
+  onFragLoadAbort () {
+    this.requestQueue.forEach(p => {
+      p.then(({ pump, abort }) => {
+        abort();
+      });
+    });
   }
 
   loadsuccess (response, stats, context, networkDetails = null) {
     let payload = response.data, frag = context.frag;
     // detach fragment loader on load success
-    frag.loader = undefined;
-    this.loaders[frag.type] = undefined;
+    frag.loader = null;
+    this.loaders[frag.type] = null;
     this.hls.trigger(Event.FRAG_LOADED, { payload: payload, frag: frag, stats: stats, networkDetails: networkDetails });
+
+    if (this.hls.config.lowLatency) {
+      this.requestQueue.pop();
+      this._checkQueue();
+    }
   }
 
   loaderror (response, context, networkDetails = null) {
@@ -135,7 +146,7 @@ class FragmentLoader extends EventHandler {
     const queue = this.requestQueue;
     const startPromise = queue[0];
     if (startPromise) {
-      startPromise.then(pump => pump());
+      startPromise.then(controller => controller.pump());
     }
   }
 }

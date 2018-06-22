@@ -118,7 +118,7 @@ export default class Hls extends Observer {
     /**
      * @member {AbrController} abrController
      */
-    const abrController = this.abrController = new config.abrController(this);
+    const abrController = this.abrController = !config.lowLatency ? new config.abrController(this) : { destroy: () => {}};
 
     const bufferController = new config.bufferController(this);
     const capLevelController = new config.capLevelController(this);

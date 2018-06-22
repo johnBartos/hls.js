@@ -82,7 +82,7 @@ function createFetch (url, context, fetchSetup) {
 
   if (context.rangeEnd) {
     headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
-  } /* jshint ignore:line */
+  }
 
   initParams.headers = new Headers(headersObj);
 
@@ -97,9 +97,16 @@ function createFetch (url, context, fetchSetup) {
 
 function createStream (response, onProgress, onComplete, context) {
   let size = 0;
+  let abortFlag = false;
   const reader = response.body.getReader();
   const pump = () => {
+    if (abortFlag) {
+      return;
+    }
     reader.read().then(({ done, value }) => {
+      if (abortFlag) {
+        return;
+      }
       if (done) {
         const response = {
           byteLength: size,
@@ -110,12 +117,17 @@ function createStream (response, onProgress, onComplete, context) {
         return;
       }
       size += value.length;
-      console.log(`>>> ${size} bytes streamed`);
       onProgress({ size }, context, value);
       pump();
     });
   };
-  return pump;
+
+  const abort = () => {
+    console.warn('>>> progressive loader aborted');
+    abortFlag = true;
+    reader.cancel();
+  };
+  return { abort, pump };
 }
 
 export default FetchLoader;

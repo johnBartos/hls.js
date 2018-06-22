@@ -459,7 +459,11 @@ class StreamController extends BaseStreamController {
       frag.autoLevel = this.hls.autoLevelEnabled;
       frag.bitrateTest = this.bitrateTest;
 
-      this.hls.trigger(Event.FRAG_LOADING, { frag });
+      if (this.config.lowLatency) {
+        this.hls.trigger(Event.FRAG_LOADING_PROGRESSIVE, { frag });
+      } else {
+        this.hls.trigger(Event.FRAG_LOADING, { frag });
+      }
       // lazy demuxer init, as this could take some time ... do it during frag loading
       if (!this.demuxer) {
         this.demuxer = new Demuxer(this.hls, 'main');
