@@ -92,8 +92,9 @@ const HlsEvents = {
   // fired when fragment matching with current media position is changing - data : { id : demuxer id, frag : fragment object }
   FRAG_CHANGED: 'hlsFragChanged',
   // Identifier for a FPS drop event - data: { curentDropped, currentDecoded, totalDroppedFrames },
-  FRAG_LOAD_START: 'hlsFragLoadStart',
-  FRAG_LOAD_COMPLETE: 'hlsFragLoadComplete',
+  FRAG_LOADING_PROGRESSIVE: 'hlsFragLoadingProgressive',
+  FRAG_LOAD_ABORT: 'hlsFragLoadAbort',
+  onFragLoadProgressiveComplete: 'hlsFragLoadProgressiveComplete',
   FPS_DROP: 'hlsFpsDrop',
   // triggered when FPS drop triggers auto level capping - data: { level, droppedlevel }
   FPS_DROP_LEVEL_CAPPING: 'hlsFpsDropLevelCapping',

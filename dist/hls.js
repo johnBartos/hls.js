@@ -261,8 +261,9 @@ var HlsEvents = {
   // fired when fragment matching with current media position is changing - data : { id : demuxer id, frag : fragment object }
   FRAG_CHANGED: 'hlsFragChanged',
   // Identifier for a FPS drop event - data: { curentDropped, currentDecoded, totalDroppedFrames },
-  FRAG_LOAD_START: 'hlsFragLoadStart',
-  FRAG_LOAD_COMPLETE: 'hlsFragLoadComplete',
+  FRAG_LOADING_PROGRESSIVE: 'hlsFragLoadingProgressive',
+  FRAG_LOAD_ABORT: 'hlsFragLoadAbort',
+  onFragLoadProgressiveComplete: 'hlsFragLoadProgressiveComplete',
   FPS_DROP: 'hlsFpsDrop',
   // triggered when FPS drop triggers auto level capping - data: { level, droppedlevel }
   FPS_DROP_LEVEL_CAPPING: 'hlsFpsDropLevelCapping',
@@ -3204,7 +3205,6 @@ var tsdemuxer_TSDemuxer = function () {
 
 
   TSDemuxer.prototype.resetInitSegment = function resetInitSegment(initSegment, audioCodec, videoCodec, duration) {
-    console.warn('>>> reset demuxer');
     this.pmtParsed = false;
     this._pmtId = -1;
 
@@ -3408,11 +3408,11 @@ var tsdemuxer_TSDemuxer = function () {
     }
     this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     avcTrack.pesData = avcData;
+    // audioTrack.pesData = audioData
     // this.flush();
   };
 
   TSDemuxer.prototype.flush = function flush() {
-    console.warn('>>> flush');
     var contiguous = this.contiguous,
         timeOffset = this.timeOffset,
         accurateTimeOffset = this.accurateTimeOffset;
@@ -3432,12 +3432,12 @@ var tsdemuxer_TSDemuxer = function () {
 
     // try to parse last PES packets
     if (avcData && (pes = parsePES(avcData)) && pes.pts !== undefined) {
-      console.warn('>>> parsing last pes');
+      // console.warn('>>> parsing last pes')
       parseAVCPES(pes, true);
       avcTrack.pesData = null;
     } else {
       // either avcData null or PES truncated, keep it for next frag parsing
-      console.warn('>>> saving pes');
+      // console.warn('>>> saving pes')
       avcTrack.pesData = avcData;
     }
 
@@ -3467,7 +3467,7 @@ var tsdemuxer_TSDemuxer = function () {
     }
 
     if (this.sampleAes == null) {
-      console.warn('>>> remuxing');
+      // console.warn('>>> remuxing');
       this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     } else {
       this.decryptAndRemux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
@@ -3629,7 +3629,6 @@ var tsdemuxer_TSDemuxer = function () {
       // if PES parsed length is not zero and greater than total received length, stop parsing. PES might be truncated
       // minus 6 : PES header size
       if (pesLen && pesLen > stream.size - 6) {
-        console.warn('>>> throwing away partial pes');
         return null;
       }
 
@@ -3741,7 +3740,6 @@ var tsdemuxer_TSDemuxer = function () {
     };
     // free pes.data to save up some memory
     pes.data = null;
-    var buffer = [];
     // if new NAL units found and last sample still there, let's push ...
     // this helps parsing streams with missing AUD (only do this if AUD never found)
     if (avcSample && units.length && !track.audFound) {
@@ -3750,10 +3748,6 @@ var tsdemuxer_TSDemuxer = function () {
     }
 
     units.forEach(function (unit) {
-      if (last) {
-        var sliceType = new exp_golomb(unit.data).readSliceType();
-        console.warn('>>>', sliceType);
-      }
       switch (unit.type) {
         // NDR
         case 1:
@@ -3771,13 +3765,13 @@ var tsdemuxer_TSDemuxer = function () {
           // only check slice type to detect KF in case SPS found in same packet (any keyframe is preceded by SPS ...)
           if (spsfound && data.length > 4) {
             // retrieve slice type by parsing beginning of NAL unit (follow H264 spec, slice_header definition) to detect keyframe embedded in NDR
-            var _sliceType = new exp_golomb(data).readSliceType();
+            var sliceType = new exp_golomb(data).readSliceType();
             // 2 : I slice, 4 : SI slice, 7 : I slice, 9: SI slice
             // SI slice : A slice that is coded using intra prediction only and using quantisation of the prediction samples.
             // An SI slice can be coded such that its decoded samples can be constructed identically to an SP slice.
             // I slice: A slice that is not an SI slice that is decoded using intra prediction only.
             // if (sliceType === 2 || sliceType === 7) {
-            if (_sliceType === 2 || _sliceType === 4 || _sliceType === 7 || _sliceType === 9) {
+            if (sliceType === 2 || sliceType === 4 || sliceType === 7 || sliceType === 9) {
               avcSample.key = true;
             }
           }
@@ -3793,7 +3787,6 @@ var tsdemuxer_TSDemuxer = function () {
           if (debug) {
             avcSample.debug += 'IDR ';
           }
-          console.warn('>>> kf found');
           avcSample.key = true;
           avcSample.frame = true;
           break;
@@ -3919,7 +3912,6 @@ var tsdemuxer_TSDemuxer = function () {
           if (avcSample) {
             pushAccesUnit(avcSample, track);
           }
-          // console.warn('>>> AUD found')
           avcSample = _this.avcSample = createAVCSample(false, pes.pts, pes.dts, debug ? 'AUD ' : '');
           break;
         // Filler Data
@@ -3940,12 +3932,10 @@ var tsdemuxer_TSDemuxer = function () {
       }
     });
     // if last PES packet, push samples
-    if (last && avcSample) {
-      console.warn('>>> pushing last PES');
-      // pushAccesUnit(avcSample, track);
-      this.leftoverAvcSamples.push(avcSample);
-      this.avcSample = null;
-    }
+    // if (last && avcSample) {
+    //   pushAccesUnit(avcSample, track);
+    //   this.avcSample = null;
+    // }
   };
 
   TSDemuxer.prototype._insertSampleInOrder = function _insertSampleInOrder(arr, data) {
@@ -4983,7 +4973,6 @@ var mp4_remuxer_MP4Remuxer = function () {
           this.remuxVideo(videoTrack, videoTimeOffset, contiguous, audioTrackLength, accurateTimeOffset);
         }
       } else {
-        console.warn('>>> nb AVC samples:' + videoTrack.samples.length);
         if (nbVideoSamples) {
           var videoData = this.remuxVideo(videoTrack, videoTimeOffset, contiguous, 0, accurateTimeOffset);
           if (videoData && audioTrack.codec) {
@@ -7344,10 +7333,27 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
   function FragmentLoader(hls) {
     fragment_loader__classCallCheck(this, FragmentLoader);
 
-    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING, events["a" /* default */].FRAG_LOADED));
+    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING, events["a" /* default */].FRAG_LOADING_PROGRESSIVE, events["a" /* default */].FRAG_LOAD_ABORT));
 
+    var config = _this.config = hls.config;
     _this.loaders = {};
     _this.requestQueue = [];
+    _this.loaderCallbacks = {
+      onSuccess: _this.loadsuccess.bind(_this),
+      onError: _this.loaderror.bind(_this),
+      onTimeout: _this.loadtimeout.bind(_this),
+      onProgress: _this.loadprogress.bind(_this)
+    };
+    _this.loaderConfig = {
+      timeout: config.fragLoadingTimeOut,
+      maxRetry: 0,
+      retryDelay: 0,
+      maxRetryDelay: config.fragLoadingMaxRetryTimeout
+    };
+
+    if (config.lowLatency) {
+      _this.progressiveLoader = new config.loader(hls);
+    }
     return _this;
   }
 
@@ -7365,13 +7371,15 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
   };
 
   FragmentLoader.prototype.onFragLoading = function onFragLoading(data) {
-    console.log('>>> loading');
-    var frag = data.frag,
-        type = frag.type,
-        loaders = this.loaders,
-        config = this.hls.config,
-        FragmentILoader = config.fLoader,
-        DefaultILoader = config.loader;
+    var config = this.config,
+        loaderCallbacks = this.loaderCallbacks,
+        loaderConfig = this.loaderConfig,
+        loaders = this.loaders;
+
+    var frag = data.frag;
+    var type = frag.type;
+    var FragmentILoader = config.fLoader;
+    var DefaultILoader = config.loader;
 
     // reset fragment state
     frag.loaded = 0;
@@ -7384,51 +7392,47 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
 
     loader = loaders[type] = frag.loader = config.fLoader ? new FragmentILoader(config) : new DefaultILoader(config);
 
-    var loaderContext = void 0,
-        loaderConfig = void 0,
-        loaderCallbacks = void 0;
-
-    loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer', progressData: false };
-
-    var start = frag.byteRangeStartOffset,
-        end = frag.byteRangeEndOffset;
+    var loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer', progressData: false };
+    var start = frag.byteRangeStartOffset;
+    var end = frag.byteRangeEndOffset;
 
     if (!isNaN(start) && !isNaN(end)) {
       loaderContext.rangeStart = start;
       loaderContext.rangeEnd = end;
     }
 
-    loaderConfig = {
-      timeout: config.fragLoadingTimeOut,
-      maxRetry: 0,
-      retryDelay: 0,
-      maxRetryDelay: config.fragLoadingMaxRetryTimeout
-    };
+    loader.load(loaderContext, loaderConfig, loaderCallbacks);
+  };
 
-    loaderCallbacks = {
-      onSuccess: this.loadsuccess.bind(this),
-      onError: this.loaderror.bind(this),
-      onTimeout: this.loadtimeout.bind(this),
-      onProgress: this.loadprogress.bind(this)
-    };
+  FragmentLoader.prototype.onFragLoadingProgressive = function onFragLoadingProgressive(data) {
+    console.log('>>> loading');
+    var loaderCallbacks = this.loaderCallbacks,
+        loaderConfig = this.loaderConfig,
+        progressiveLoader = this.progressiveLoader,
+        requestQueue = this.requestQueue;
 
-    if (config.lowLatency) {
-      var queue = this.requestQueue;
-      // if (queue.length) {
-      //   return;
-      // }
-      queue.push(loader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
-      if (queue.length === 1) {
-        this._checkQueue();
-      }
-    } else {
-      loader.load(loaderContext, loaderConfig, loaderCallbacks);
+    var frag = data.frag;
+
+    if (requestQueue.length) {
+      return;
+    }
+
+    var loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer' };
+    requestQueue.push(progressiveLoader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+    if (requestQueue.length === 1) {
+      this._checkQueue();
     }
   };
 
-  FragmentLoader.prototype.onFragLoaded = function onFragLoaded() {
-    this.requestQueue.pop();
-    this._checkQueue();
+  FragmentLoader.prototype.onFragLoadAbort = function onFragLoadAbort() {
+    this.requestQueue.forEach(function (p) {
+      p.then(function (_ref) {
+        var pump = _ref.pump,
+            abort = _ref.abort;
+
+        abort();
+      });
+    });
   };
 
   FragmentLoader.prototype.loadsuccess = function loadsuccess(response, stats, context) {
@@ -7437,9 +7441,14 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
     var payload = response.data,
         frag = context.frag;
     // detach fragment loader on load success
-    frag.loader = undefined;
-    this.loaders[frag.type] = undefined;
+    frag.loader = null;
+    this.loaders[frag.type] = null;
     this.hls.trigger(events["a" /* default */].FRAG_LOADED, { payload: payload, frag: frag, stats: stats, networkDetails: networkDetails });
+
+    if (this.hls.config.lowLatency) {
+      this.requestQueue.pop();
+      this._checkQueue();
+    }
   };
 
   FragmentLoader.prototype.loaderror = function loaderror(response, context) {
@@ -7482,8 +7491,8 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
     var queue = this.requestQueue;
     var startPromise = queue[0];
     if (startPromise) {
-      startPromise.then(function (pump) {
-        return pump();
+      startPromise.then(function (controller) {
+        return controller.pump();
       });
     }
   };
@@ -9403,7 +9412,11 @@ var stream_controller_StreamController = function (_TaskLoop) {
       frag.autoLevel = this.hls.autoLevelEnabled;
       frag.bitrateTest = this.bitrateTest;
 
-      this.hls.trigger(events["a" /* default */].FRAG_LOADING, { frag: frag });
+      if (this.config.lowLatency) {
+        this.hls.trigger(events["a" /* default */].FRAG_LOADING_PROGRESSIVE, { frag: frag });
+      } else {
+        this.hls.trigger(events["a" /* default */].FRAG_LOADING, { frag: frag });
+      }
       // lazy demuxer init, as this could take some time ... do it during frag loading
       if (!this.demuxer) {
         this.demuxer = new demux_demuxer(this.hls, 'main');
@@ -9647,7 +9660,7 @@ var stream_controller_StreamController = function (_TaskLoop) {
 
     var mediaBuffer = this.mediaBuffer ? this.mediaBuffer : media;
     var bufferInfo = BufferHelper.bufferInfo(mediaBuffer, currentTime, this.config.maxBufferHole);
-    if (this.state === State.FRAG_LOADING) {
+    if (true) {
       var fragCurrent = this.fragCurrent;
       // check if we are seeking to a unbuffered area AND if frag loading is in progress
       if (bufferInfo.len === 0 && fragCurrent) {
@@ -9656,10 +9669,8 @@ var stream_controller_StreamController = function (_TaskLoop) {
             fragEndOffset = fragCurrent.start + fragCurrent.duration + tolerance;
         // check if we seek position will be out of currently loaded frag range : if out cancel frag load, if in, don't do anything
         if (currentTime < fragStartOffset || currentTime > fragEndOffset) {
-          if (fragCurrent.loader) {
-            utils_logger["b" /* logger */].log('seeking outside of buffer while fragment load in progress, cancel fragment load');
-            fragCurrent.loader.abort();
-          }
+          utils_logger["b" /* logger */].log('seeking outside of buffer while fragment load in progress, cancel fragment load');
+          this.hls.trigger(events["a" /* default */].FRAG_LOAD_ABORT);
           this.fragCurrent = null;
           this.fragPrevious = null;
           // switch to IDLE state to load new fragment
@@ -12088,7 +12099,7 @@ var buffer_controller_BufferController = function (_EventHandler) {
       // Override duration to Infinity
       utils_logger["b" /* logger */].log('Media Source duration is set to Infinity');
       this._msDuration = this.mediaSource.duration = Infinity;
-    } else if (this._levelDuration > this._msDuration && this._levelDuration > duration || duration === Infinity || isNaN(duration)) {
+    } else if (this._levelDuration > this._msDuration && this._levelDuration > duration || duration === Infinity || isNaN(duration) || config.lowLatency) {
       // levelDuration was the last value we set.
       // not using mediaSource.duration as the browser may tweak this value
       // only update Media Source duration if its value increase, this is to avoid
@@ -12868,7 +12879,7 @@ function createFetch(url, context, fetchSetup) {
 
   if (context.rangeEnd) {
     headersObj['Range'] = 'bytes=' + context.rangeStart + '-' + String(context.rangeEnd - 1);
-  } /* jshint ignore:line */
+  }
 
   initParams.headers = new Headers(headersObj);
 
@@ -12883,12 +12894,19 @@ function createFetch(url, context, fetchSetup) {
 
 function createStream(response, onProgress, onComplete, context) {
   var size = 0;
+  var abortFlag = false;
   var reader = response.body.getReader();
   var pump = function pump() {
+    if (abortFlag) {
+      return;
+    }
     reader.read().then(function (_ref) {
       var done = _ref.done,
           value = _ref.value;
 
+      if (abortFlag) {
+        return;
+      }
       if (done) {
         var _response = {
           byteLength: size,
@@ -12899,12 +12917,17 @@ function createStream(response, onProgress, onComplete, context) {
         return;
       }
       size += value.length;
-      console.log('>>> ' + size + ' bytes streamed');
       onProgress({ size: size }, context, value);
       pump();
     });
   };
-  return pump;
+
+  var abort = function abort() {
+    console.warn('>>> progressive loader aborted');
+    abortFlag = true;
+    reader.cancel();
+  };
+  return { abort: abort, pump: pump };
 }
 
 /* harmony default export */ var fetch_loader = (FetchLoader);
@@ -18005,7 +18028,7 @@ var hlsDefaultConfig = {
   capLevelToPlayerSize: false, // used by cap-level-controller
   initialLiveManifestSize: 1, // used by stream-controller
   maxBufferLength: 30, // used by stream-controller
-  maxBufferSize: 60 * 1000 * 1000, // used by stream-controller
+  maxBufferSize: 10 * 1000 * 1000, // used by stream-controller
   maxBufferHole: 0.5, // used by stream-controller
 
   lowBufferWatchdogPeriod: 0.5, // used by stream-controller
@@ -18260,7 +18283,7 @@ var hls_Hls = function () {
     /**
      * @member {AbrController} abrController
      */
-    var abrController = this.abrController = new config.abrController(this);
+    var abrController = this.abrController = !config.lowLatency ? new config.abrController(this) : { destroy: function destroy() {} };
 
     var bufferController = new config.bufferController(this);
     var capLevelController = new config.capLevelController(this);
