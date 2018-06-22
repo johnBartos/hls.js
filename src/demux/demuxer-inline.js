@@ -100,6 +100,7 @@ class DemuxerInline {
     }
     const remuxer = this.remuxer;
 
+    console.log('>>> not discontinuous')
     if (discontinuity || trackSwitch) {
       demuxer.resetInitSegment(initSegment, audioCodec, videoCodec, duration);
       remuxer.resetInitSegment();
@@ -115,9 +116,9 @@ class DemuxerInline {
     demuxer.append(data, timeOffset, contiguous, accurateTimeOffset);
   }
 
-  flush () {
+  flush (reset) {
     if (this.demuxer) {
-      this.demuxer.flush();
+      this.demuxer.flush(reset);
     }
   }
 }

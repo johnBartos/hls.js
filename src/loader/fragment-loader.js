@@ -6,10 +6,11 @@ import Event from '../events';
 import EventHandler from '../event-handler';
 import { ErrorTypes, ErrorDetails } from '../errors';
 import { logger } from '../utils/logger';
+import ProgressiveLoader from './progressive-loader';
 
 class FragmentLoader extends EventHandler {
   constructor (hls) {
-    super(hls, Event.FRAG_LOADING, Event.FRAG_LOADING_PROGRESSIVE, Event.FRAG_LOAD_ABORT);
+    super(hls, Event.FRAG_LOADING, Event.FRAG_LOADING_PROGRESSIVE);
     const config = this.config = hls.config;
     this.loaders = {};
     this.requestQueue = [];
@@ -17,7 +18,8 @@ class FragmentLoader extends EventHandler {
       onSuccess: this.loadsuccess.bind(this),
       onError: this.loaderror.bind(this),
       onTimeout: this.loadtimeout.bind(this),
-      onProgress: this.loadprogress.bind(this)
+      onProgress: this.loadprogress.bind(this),
+      onAbort: this.loadAbort.bind(this)
     };
     this.loaderConfig = {
       timeout: config.fragLoadingTimeOut,
@@ -25,10 +27,6 @@ class FragmentLoader extends EventHandler {
       retryDelay: 0,
       maxRetryDelay: config.fragLoadingMaxRetryTimeout
     };
-
-    if (config.lowLatency) {
-      this.progressiveLoader = new config.loader(hls);
-    }
   }
 
   destroy () {
@@ -77,26 +75,17 @@ class FragmentLoader extends EventHandler {
 
   onFragLoadingProgressive (data) {
     console.log('>>> loading');
-    const { loaderCallbacks, loaderConfig, progressiveLoader, requestQueue } = this;
+    const { loaderCallbacks, requestQueue } = this;
     const frag = data.frag;
 
-    if (requestQueue.length) {
-      return;
-    }
-
     const loaderContext = { url: frag.url, frag, responseType: 'arraybuffer' };
-    requestQueue.push(progressiveLoader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+    const loader = frag.loader = new ProgressiveLoader(loaderContext, loaderCallbacks);
+    // Start downloading the fragment. This doesn't stream the bytes yet
+    loader.load();
+    requestQueue.push(loader);
     if (requestQueue.length === 1) {
       this._checkQueue();
     }
-  }
-
-  onFragLoadAbort () {
-    this.requestQueue.forEach(p => {
-      p.then(({ pump, abort }) => {
-        abort();
-      });
-    });
   }
 
   loadsuccess (response, stats, context, networkDetails = null) {
@@ -141,12 +130,19 @@ class FragmentLoader extends EventHandler {
     this.hls.trigger(Event.FRAG_LOAD_PROGRESS, { frag: frag, stats: stats, networkDetails: networkDetails, payload: data });
   }
 
+  loadAbort () {
+    console.warn('>>> loader abort callback')
+    this.requestQueue.pop();
+    this._checkQueue();
+    this.hls.trigger(Event.FRAG_LOAD_EMERGENCY_ABORTED);
+  }
+
   _checkQueue () {
     console.log('>>> checking queue', this.requestQueue.length);
     const queue = this.requestQueue;
-    const startPromise = queue[0];
-    if (startPromise) {
-      startPromise.then(controller => controller.pump());
+    const loader = queue[0];
+    if (loader) {
+      loader.stream();
     }
   }
 }

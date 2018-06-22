@@ -444,6 +444,7 @@ class StreamController extends BaseStreamController {
   }
 
   _loadFragment (frag) {
+    console.log('>>> loading fragment')
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
@@ -1324,6 +1325,7 @@ class StreamController extends BaseStreamController {
       this.startFragRequested = false;
       this.nextLoadPosition = this.startPosition;
     }
+    this.demuxer.flush(true);
     this.tick();
   }
 
