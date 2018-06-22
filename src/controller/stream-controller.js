@@ -390,7 +390,6 @@ class StreamController extends BaseStreamController {
     }
     if (foundFrag) {
       frag = foundFrag;
-      return frag;
       const curSNIdx = frag.sn - levelDetails.startSN;
       const sameLevel = fragPrevious && frag.level === fragPrevious.level;
       const prevFrag = fragments[curSNIdx - 1];
@@ -444,7 +443,6 @@ class StreamController extends BaseStreamController {
   }
 
   _loadFragment (frag) {
-    console.log('>>> loading fragment')
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
@@ -1037,7 +1035,7 @@ class StreamController extends BaseStreamController {
       // Detect gaps in a fragment  and try to fix it by finding a keyframe in the previous fragment (see _findFragments)
       if (data.type === 'video') {
         frag.dropped = data.dropped;
-        if (false && frag.dropped) {
+        if (frag.dropped) {
           if (!frag.backtracked) {
             const levelDetails = level.details;
             if (levelDetails && frag.sn === levelDetails.startSN) {
@@ -1326,6 +1324,7 @@ class StreamController extends BaseStreamController {
       this.nextLoadPosition = this.startPosition;
     }
     this.demuxer.flush(true);
+    this.flushMainBuffer(0, Number.POSITIVE_INFINITY);
     this.tick();
   }
 

@@ -309,13 +309,16 @@ class TSDemuxer {
     }
     this.remuxer.remux(audioTrack, avcTrack, id3Track, this._txtTrack, timeOffset, contiguous, accurateTimeOffset);
     avcTrack.pesData = avcData;
-    // audioTrack.pesData = audioData
+    // audioTrack.pesData = audioData;
+    // id3Track.pesData = id3Data;
     // this.flush();
   }
 
   flush (reset) {
     if (reset) {
+      console.log('%c >>> resetting demuxer', 'color: red');
       this.resetInitSegment(null, this.audioCodec, this.videoCodec, this._duration);
+      this.remuxer.resetInitSegment();
       return;
     }
     const { contiguous, timeOffset, accurateTimeOffset } = this;
@@ -664,6 +667,7 @@ class TSDemuxer {
         break;
         // IDR
       case 5:
+        console.log('%c >>> KF found', 'color: red');
         push = true;
         // handle PES not starting with AUD
         if (!avcSample) {

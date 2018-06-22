@@ -98,6 +98,7 @@ class MP4Remuxer {
     }
 
     // notify end of parsing
+    console.log('>>> remux complete')
     this.observer.trigger(Event.FRAG_PARSED);
   }
 
