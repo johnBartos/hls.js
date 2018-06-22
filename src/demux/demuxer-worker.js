@@ -40,6 +40,8 @@ let DemuxerWorker = function (self) {
     case 'demux':
       self.demuxer.push(data.data, data.decryptdata, data.initSegment, data.audioCodec, data.videoCodec, data.timeOffset, data.discontinuity, data.trackSwitch, data.contiguous, data.duration, data.accurateTimeOffset, data.defaultInitPTS);
       break;
+    case 'flush':
+      self.demuxer.flush(data);
     default:
       break;
     }
