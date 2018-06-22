@@ -476,6 +476,7 @@ class StreamController extends TaskLoop {
   }
 
   _loadFragment (frag) {
+    console.log('>>> loading fragment')
     // Check if fragment is not loaded
     let fragState = this.fragmentTracker.getState(frag);
 
@@ -776,8 +777,10 @@ class StreamController extends TaskLoop {
           fragEndOffset = fragCurrent.start + fragCurrent.duration + tolerance;
         // check if we seek position will be out of currently loaded frag range : if out cancel frag load, if in, don't do anything
         if (currentTime < fragStartOffset || currentTime > fragEndOffset) {
-          logger.log('seeking outside of buffer while fragment load in progress, cancel fragment load');
-          this.hls.trigger(Event.FRAG_LOAD_ABORT);
+          if (fragCurrent.loader) {
+            logger.log('seeking outside of buffer while fragment load in progress, cancel fragment load');
+            fragCurrent.loader.abort();
+          }
           this.fragCurrent = null;
           this.fragPrevious = null;
           // switch to IDLE state to load new fragment
@@ -1441,6 +1444,7 @@ class StreamController extends TaskLoop {
       this.startFragRequested = false;
       this.nextLoadPosition = this.startPosition;
     }
+    this.demuxer.flush(true);
     this.tick();
   }
 

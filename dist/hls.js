@@ -3220,6 +3220,7 @@ var tsdemuxer_TSDemuxer = function () {
     this.audioCodec = audioCodec;
     this.videoCodec = videoCodec;
     this._duration = duration;
+    this.remainderData = null;
   };
 
   /**
@@ -3412,7 +3413,11 @@ var tsdemuxer_TSDemuxer = function () {
     // this.flush();
   };
 
-  TSDemuxer.prototype.flush = function flush() {
+  TSDemuxer.prototype.flush = function flush(reset) {
+    if (reset) {
+      this.resetInitSegment(null, this.audioCodec, this.videoCodec, this._duration);
+      return;
+    }
     var contiguous = this.contiguous,
         timeOffset = this.timeOffset,
         accurateTimeOffset = this.accurateTimeOffset;
@@ -5872,6 +5877,7 @@ var demuxer_inline_DemuxerInline = function () {
     }
     var remuxer = this.remuxer;
 
+    console.log('>>> not discontinuous');
     if (discontinuity || trackSwitch) {
       demuxer.resetInitSegment(initSegment, audioCodec, videoCodec, duration);
       remuxer.resetInitSegment();
@@ -5887,9 +5893,9 @@ var demuxer_inline_DemuxerInline = function () {
     demuxer.append(data, timeOffset, contiguous, accurateTimeOffset);
   };
 
-  DemuxerInline.prototype.flush = function flush() {
+  DemuxerInline.prototype.flush = function flush(reset) {
     if (this.demuxer) {
-      this.demuxer.flush();
+      this.demuxer.flush(reset);
     }
   };
 
@@ -7311,6 +7317,99 @@ var playlist_loader_PlaylistLoader = function (_EventHandler) {
 }(event_handler);
 
 /* harmony default export */ var playlist_loader = (playlist_loader_PlaylistLoader);
+// CONCATENATED MODULE: ./src/loader/progressive-loader.js
+function progressive_loader__classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var ProgressiveLoader = function () {
+  function ProgressiveLoader(context, callbacks) {
+    progressive_loader__classCallCheck(this, ProgressiveLoader);
+
+    this.callbacks = callbacks;
+    this.context = context;
+    this.request = null;
+    this.abortFlag = null;
+    this.pump = null;
+  }
+
+  ProgressiveLoader.prototype.load = function load() {
+    var _this = this;
+
+    console.log('>>> loading new frag');
+    var url = this.context.url;
+
+    var initParams = {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'same-origin'
+    };
+
+    this.request = window.fetch(url, new window.Request(url, initParams)).then(function (response) {
+      if (response.ok) {
+        var pump = _this.pump = _this._createStream(response);
+        _this.pump = pump;
+        return pump;
+      }
+    });
+  };
+
+  ProgressiveLoader.prototype.stream = function stream() {
+    console.log('>>> streaming frag');
+    var request = this.request;
+    if (this.pump) {
+      this.pump();
+    } else if (this.request) {
+      request.then(function (pump) {
+        pump();
+      });
+    }
+  };
+
+  ProgressiveLoader.prototype.abort = function abort() {
+    this.abortFlag = true;
+  };
+
+  ProgressiveLoader.prototype._createStream = function _createStream(response) {
+    var _this2 = this;
+
+    var _callbacks = this.callbacks,
+        onProgress = _callbacks.onProgress,
+        onSuccess = _callbacks.onSuccess;
+
+    var reader = response.body.getReader();
+    var size = 0;
+    var pump = function pump() {
+      if (_this2.abortFlag) {
+        console.warn('>>> progressive loader aborted');
+        _this2.callbacks.onAbort();
+        reader.cancel();
+        return;
+      }
+      reader.read().then(function (_ref) {
+        var done = _ref.done,
+            value = _ref.value;
+
+        if (done) {
+          var _response = {
+            byteLength: size,
+            payload: null
+          };
+          var stats = {};
+          onSuccess(_response, stats, _this2.context);
+          return;
+        }
+        size += value.length;
+        onProgress({ size: size }, _this2.context, value);
+        pump();
+      });
+    };
+
+    return pump;
+  };
+
+  return ProgressiveLoader;
+}();
+
+/* harmony default export */ var progressive_loader = (ProgressiveLoader);
 // CONCATENATED MODULE: ./src/loader/fragment-loader.js
 function fragment_loader__classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -7327,13 +7426,14 @@ function fragment_loader__inherits(subClass, superClass) { if (typeof superClass
 
 
 
+
 var fragment_loader_FragmentLoader = function (_EventHandler) {
   fragment_loader__inherits(FragmentLoader, _EventHandler);
 
   function FragmentLoader(hls) {
     fragment_loader__classCallCheck(this, FragmentLoader);
 
-    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING, events["a" /* default */].FRAG_LOADING_PROGRESSIVE, events["a" /* default */].FRAG_LOAD_ABORT));
+    var _this = fragment_loader__possibleConstructorReturn(this, _EventHandler.call(this, hls, events["a" /* default */].FRAG_LOADING, events["a" /* default */].FRAG_LOADING_PROGRESSIVE));
 
     var config = _this.config = hls.config;
     _this.loaders = {};
@@ -7342,7 +7442,8 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
       onSuccess: _this.loadsuccess.bind(_this),
       onError: _this.loaderror.bind(_this),
       onTimeout: _this.loadtimeout.bind(_this),
-      onProgress: _this.loadprogress.bind(_this)
+      onProgress: _this.loadprogress.bind(_this),
+      onAbort: _this.loadAbort.bind(_this)
     };
     _this.loaderConfig = {
       timeout: config.fragLoadingTimeOut,
@@ -7350,10 +7451,6 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
       retryDelay: 0,
       maxRetryDelay: config.fragLoadingMaxRetryTimeout
     };
-
-    if (config.lowLatency) {
-      _this.progressiveLoader = new config.loader(hls);
-    }
     return _this;
   }
 
@@ -7407,32 +7504,18 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
   FragmentLoader.prototype.onFragLoadingProgressive = function onFragLoadingProgressive(data) {
     console.log('>>> loading');
     var loaderCallbacks = this.loaderCallbacks,
-        loaderConfig = this.loaderConfig,
-        progressiveLoader = this.progressiveLoader,
         requestQueue = this.requestQueue;
 
     var frag = data.frag;
 
-    if (requestQueue.length) {
-      return;
-    }
-
     var loaderContext = { url: frag.url, frag: frag, responseType: 'arraybuffer' };
-    requestQueue.push(progressiveLoader.progressiveLoad(loaderContext, loaderConfig, loaderCallbacks));
+    var loader = frag.loader = new progressive_loader(loaderContext, loaderCallbacks);
+    // Start downloading the fragment. This doesn't stream the bytes yet
+    loader.load();
+    requestQueue.push(loader);
     if (requestQueue.length === 1) {
       this._checkQueue();
     }
-  };
-
-  FragmentLoader.prototype.onFragLoadAbort = function onFragLoadAbort() {
-    this.requestQueue.forEach(function (p) {
-      p.then(function (_ref) {
-        var pump = _ref.pump,
-            abort = _ref.abort;
-
-        abort();
-      });
-    });
   };
 
   FragmentLoader.prototype.loadsuccess = function loadsuccess(response, stats, context) {
@@ -7486,14 +7569,19 @@ var fragment_loader_FragmentLoader = function (_EventHandler) {
     this.hls.trigger(events["a" /* default */].FRAG_LOAD_PROGRESS, { frag: frag, stats: stats, networkDetails: networkDetails, payload: data });
   };
 
+  FragmentLoader.prototype.loadAbort = function loadAbort() {
+    console.warn('>>> loader abort callback');
+    this.requestQueue.pop();
+    this._checkQueue();
+    this.hls.trigger(events["a" /* default */].FRAG_LOAD_EMERGENCY_ABORTED);
+  };
+
   FragmentLoader.prototype._checkQueue = function _checkQueue() {
     console.log('>>> checking queue', this.requestQueue.length);
     var queue = this.requestQueue;
-    var startPromise = queue[0];
-    if (startPromise) {
-      startPromise.then(function (controller) {
-        return controller.pump();
-      });
+    var loader = queue[0];
+    if (loader) {
+      loader.stream();
     }
   };
 
@@ -8300,8 +8388,8 @@ var demuxer_Demuxer = function () {
     }
   };
 
-  Demuxer.prototype.flush = function flush() {
-    this.demuxer.flush();
+  Demuxer.prototype.flush = function flush(reset) {
+    this.demuxer.flush(reset);
   };
 
   return Demuxer;
@@ -8348,12 +8436,12 @@ function updatePTS(fragments, fromIdx, toIdx) {
     if (toIdx > fromIdx) {
       fragFrom.duration = fragToPTS - fragFrom.start;
       if (fragFrom.duration < 0) {
-        utils_logger["b" /* logger */].warn('negative duration computed for frag ' + fragFrom.sn + ',level ' + fragFrom.level + ', there should be some duration drift between playlist and fragment!');
+        // logger.warn(`negative duration computed for frag ${fragFrom.sn},level ${fragFrom.level}, there should be some duration drift between playlist and fragment!`);
       }
     } else {
       fragTo.duration = fragFrom.start - fragToPTS;
       if (fragTo.duration < 0) {
-        utils_logger["b" /* logger */].warn('negative duration computed for frag ' + fragTo.sn + ',level ' + fragTo.level + ', there should be some duration drift between playlist and fragment!');
+        // logger.warn(`negative duration computed for frag ${fragTo.sn},level ${fragTo.level}, there should be some duration drift between playlist and fragment!`);
       }
     }
   } else {
@@ -9397,6 +9485,7 @@ var stream_controller_StreamController = function (_TaskLoop) {
   };
 
   StreamController.prototype._loadFragment = function _loadFragment(frag) {
+    console.log('>>> loading fragment');
     // Check if fragment is not loaded
     var fragState = this.fragmentTracker.getState(frag);
 
@@ -9669,8 +9758,10 @@ var stream_controller_StreamController = function (_TaskLoop) {
             fragEndOffset = fragCurrent.start + fragCurrent.duration + tolerance;
         // check if we seek position will be out of currently loaded frag range : if out cancel frag load, if in, don't do anything
         if (currentTime < fragStartOffset || currentTime > fragEndOffset) {
-          utils_logger["b" /* logger */].log('seeking outside of buffer while fragment load in progress, cancel fragment load');
-          this.hls.trigger(events["a" /* default */].FRAG_LOAD_ABORT);
+          if (fragCurrent.loader) {
+            utils_logger["b" /* logger */].log('seeking outside of buffer while fragment load in progress, cancel fragment load');
+            fragCurrent.loader.abort();
+          }
           this.fragCurrent = null;
           this.fragPrevious = null;
           // switch to IDLE state to load new fragment
@@ -10342,6 +10433,7 @@ var stream_controller_StreamController = function (_TaskLoop) {
       this.startFragRequested = false;
       this.nextLoadPosition = this.startPosition;
     }
+    this.demuxer.flush(true);
     this.tick();
   };
 
@@ -12854,15 +12946,6 @@ var FetchLoader = function () {
     });
   };
 
-  FetchLoader.prototype.progressiveLoad = function progressiveLoad(context, config, callbacks) {
-    var targetUrl = context.url;
-    return createFetch(targetUrl, context, this.fetchSetup).then(function (response) {
-      if (response.ok) {
-        return createStream(response, callbacks.onProgress, callbacks.onSuccess, context);
-      }
-    });
-  };
-
   return FetchLoader;
 }();
 
@@ -12890,44 +12973,6 @@ function createFetch(url, context, fetchSetup) {
   }
 
   return fetch(request, initParams);
-}
-
-function createStream(response, onProgress, onComplete, context) {
-  var size = 0;
-  var abortFlag = false;
-  var reader = response.body.getReader();
-  var pump = function pump() {
-    if (abortFlag) {
-      return;
-    }
-    reader.read().then(function (_ref) {
-      var done = _ref.done,
-          value = _ref.value;
-
-      if (abortFlag) {
-        return;
-      }
-      if (done) {
-        var _response = {
-          byteLength: size,
-          payload: null
-        };
-        var stats = {};
-        onComplete(_response, stats, context);
-        return;
-      }
-      size += value.length;
-      onProgress({ size: size }, context, value);
-      pump();
-    });
-  };
-
-  var abort = function abort() {
-    console.warn('>>> progressive loader aborted');
-    abortFlag = true;
-    reader.cancel();
-  };
-  return { abort: abort, pump: pump };
 }
 
 /* harmony default export */ var fetch_loader = (FetchLoader);

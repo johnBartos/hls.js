@@ -129,6 +129,7 @@ class TSDemuxer {
     this.audioCodec = audioCodec;
     this.videoCodec = videoCodec;
     this._duration = duration;
+    this.remainderData = null;
   }
 
   /**
@@ -312,7 +313,11 @@ class TSDemuxer {
     // this.flush();
   }
 
-  flush () {
+  flush (reset) {
+    if (reset) {
+      this.resetInitSegment(null, this.audioCodec, this.videoCodec, this._duration);
+      return;
+    }
     const { contiguous, timeOffset, accurateTimeOffset } = this;
     let pes;
     let avcTrack = this._avcTrack;
